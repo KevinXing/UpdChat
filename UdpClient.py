@@ -76,8 +76,8 @@ def myRecv(s):
 	length = int(data[0])
 	msgType = data[1]
 	label = int(data[2])
-	print 'debug in myRecv: ' 
-	print data
+	#print 'debug in myRecv: ' 
+	#print data
 	res = ''
 	while (len(res) < length):
 		tmp, (a, b) = s.recvfrom(1024)
@@ -85,19 +85,19 @@ def myRecv(s):
 	return [msgType, res, addr, port, label]
 
 def mySend(head, data, s, serverIp, serverPort):
-	print 'send: '
-	print 'head: ' + head
-	print 'data: ' + str(data)
-	print 'ip: ' + serverIp
-	print 'port: ' + str(serverPort)
+	#print 'send: '
+	#print 'head: ' + head
+	#print 'data: ' + str(data)
+	#print 'ip: ' + serverIp
+	#print 'port: ' + str(serverPort)
 	s.sendto(str(head), (serverIp, serverPort))
 	s.sendto(str(data), (serverIp, serverPort))
 
 def readTable(user):
 	global userTable
 	value = userTable[user]
-	print 'debug in readTable:'
-	print value
+	#print 'debug in readTable:'
+	#print value
 	return [value[0], int(value[1]), value[2]]
 
 def waitAck(num):
@@ -125,7 +125,7 @@ def getAckNum(needAck):
 
 def recvAckUpdate(num):
 	global ackMap	
-	print 'debug in recvAckUpdate: here'
+	#print 'debug in recvAckUpdate: here'
 	num = int(num)
 	if (num in ackMap and ackMap[num] == 1):
 		ackMap[num] = 2	
@@ -133,7 +133,7 @@ def recvAckUpdate(num):
 def genHead(data, msgType):
 	global MSG, HEART, DEREG
 	needAck = False
-	if (msgType == MSG or msgType == HEART or msgType == DEREG):
+	if (msgType == MSG or msgType == HEART or msgType == DEREG or msgType == OFFLINE):
 		needAck = True
 	label = getAckNum(needAck)
 	return [str(len(str(data))) + ',' + msgType + ',' + str(label), label]
@@ -151,7 +151,7 @@ def broadcast():
 	s.close()
 
 
-def offlineHelper(sender, receiver, offlineMsg, s):
+def offlineHelper(sender, receiver, offlineMsg, s, label):
 	global userTable, fileLockMap 
         userTable[receiver][2] = 0
 	broadcast()
@@ -168,11 +168,12 @@ def offlineHelper(sender, receiver, offlineMsg, s):
         f.write(offlineMsg)              
         f.close()
         fileLock.release() 
-        info = '[Messages received by the server and saved]'
+        #info = '[Messages received by the server and saved]'
 	(addr, port, status) = readTable(sender)
-        mySend(genHead(info, INFO)[0], info, s, addr, port)	
+		
+        mySend(genHead(str(label), ACK)[0], str(label), s, addr, port)	
 
-def offlineHdl(data, addr):
+def offlineHdl(data, addr, label):
 	global HEART, uesrTable
 	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 	offMsg = data
@@ -190,15 +191,17 @@ def offlineHdl(data, addr):
 			serverSend(info, INFO, addr, port)
 			broadcast()
 		else:
-			offlineHelper(sender, receiver, offlineMsg, s)
+			offlineHelper(sender, receiver, offlineMsg, s, label)
 	else:
-		offlineHelper(sender, receiver, offlineMsg, s)
+		offlineHelper(sender, receiver, offlineMsg, s, label)
 	s.close()
 
 def getOfflineMsg(user):
 	global fileLockMap
 	fileName = user + '.txt'
 	if (os.path.isfile(fileName)):
+		if (fileName not in fileLockMap):
+			fileLockMap[fileName] = threading.Lock()
 		fileLock = fileLockMap[fileName]
 		fileLock.acquire()
 		f = open(fileName, 'r')
@@ -218,7 +221,7 @@ def regHdl(userInfo, addr):
 	userTable[userInfo[0]] = [addr, port, 1]
 	info =  '\n>>> [Welcome, You are registered.]'
 	head = genHead(info, INFO)
-	print head
+	#print head
 	mySend(head[0], info, s, addr, port)
 	sys.stdout.flush()
 	
@@ -231,10 +234,12 @@ def regHdl(userInfo, addr):
 def deregHdl(user, addr, label):
 	global userTable
 	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-       	userTable[user][2] = 0
-	port = userTable[user][1]
-        info = str(label)
-	print 'debug in deregHdl'
+	if (user not in userTable):
+		return		
+       	userTable[user][2] = 0 
+	port = userTable[user][1] 
+	info = str(label)
+	#print 'debug in deregHdl'
         mySend(genHead(info, ACK)[0], info, s, addr, port)
         broadcast()
 	s.close()
@@ -246,7 +251,7 @@ def server():
 
 	while True:
 		msgType, userInfo, addr, port, label = myRecv(s)
-		print userInfo
+		#print userInfo
 		if (msgType == REG):
 			t = threading.Thread(target = regHdl, args =(userInfo, addr,))
 			t.start()
@@ -256,12 +261,12 @@ def server():
 		elif (msgType == OFFLINE):
 			stream = json.loads(userInfo)		
 			fileName = stream[1] + '.txt'
-			print 'debug in server():'
-			print stream
-			print 'fileName = ' + fileName
+			#print 'debug in server():'
+			#print stream
+			#print 'fileName = ' + fileName
 			if (fileName not in fileLockMap):
 				fileLockMap[fileName] = threading.Lock()
-			t = threading.Thread(target = offlineHdl, args =(stream, addr,))
+			t = threading.Thread(target = offlineHdl, args =(stream, addr, label,))
 			t.start()
 		elif (msgType == ACK):
 			recvAckUpdate(userInfo)	
@@ -295,10 +300,10 @@ def clientListen(s):
 			port = serverIp
 			if (msgType == MSG):
 				tmp = data.split(':')
-				print 'debug in clientListen: tmp = '
-				print tmp
+				#print 'debug in clientListen: tmp = '
+				#print tmp
 				port = int(userTable[tmp[0]][1])
-			print 'debug in clientListen: port = ' + str(port)
+			#print 'debug in clientListen: port = ' + str(port)
 			mySend(genHead(ackMsg, ACK)[0], ackMsg, ackSocket, addr, port)
 			ackSocket.close()
 			if (msgType == MSG):
@@ -310,55 +315,96 @@ def sendOffline(s, msg, receiver):
 	global userTable, myName, OFFLINE 
 	offMsg = [myName, receiver, msg]
 	stream = json.dumps(offMsg)
-	mySend(genHead(stream, OFFLINE)[0], stream, s, serverIp, serverPort)
+	i = 0
+	while (True):
+		head = genHead(stream, OFFLINE);
+		mySend(head[0], stream, s, serverIp, serverPort)
+		if (waitAck(head[1]) == False):
+			i = i + 1
+			if (i == 5):
+				print '\n>>> [Server not responding]'
+				print '\n>>> [Exiting]'
+				s.close()		
+				exit(0)
+		else:
+			print '\n>>> [Messages received by the server and saved]'
+			print '>>> ',
+			break
 	
-
 def send(s):
 	global userTable, MSG, DEREG, waitingACK, myName
 	try:
 		msg = raw_input()
 	except KeyboardInterrupt:
-		head = genHead(myName, DEREG)
-		mySend(head[0], myName, s, serverIp, serverPort)
-		if (waitAck(head[1]) == False):
-			print '\n>>> [Server not responding]'
-			print '\n>>> [Exiting]'
-			s.close()		
-			exit(0)
-
-		print '\n>>> [You are Offline. Bye.]'
-		s.close()
-		exit(0)
+		i = 0
+		while (True):
+			head = genHead(myName, DEREG)
+			mySend(head[0], myName, s, serverIp, serverPort)
+			if (waitAck(head[1]) == False):
+				i = i + 1
+				if (i == 5):
+					print '\n>>> [Server not responding]'
+					print '\n>>> [Exiting]'
+					s.close()		
+					exit(0)
+			else:
+				print '\n>>> [You are Offline. Bye.]'
+				s.close()
+				exit(0)
 	
-	print 'debug: in send(): ' + msg 
+	#print 'debug: in send(): ' + msg 
 	msg = msg.split(' ')
-	if (len(msg) != 3 or (msg[0] != 'send' and msg[0] != 'reg')):
-		print '\n>>> [msg invalid]'
-		print '>>> ',
-		return
 	if (msg[0] == 'send'):
+		if (len(msg) != 3):
+			print '\n>>> [msg invalid]'
+			print '>>>',
+			return
 		receiver = msg[1]
 		if (receiver not in userTable):
 			print '\n>>> [cannot find receiver]'
 			print '>>> ',
 			return	
 		(addr, port, status) = readTable(receiver)
-	
-		content = myName + ': ' + msg[2]
-		head = genHead(content, MSG)
-		mySend(head[0], content, s, addr, port)
-		
-		if (waitAck(head[1]) == False):
-			print '\n>>> [No ACK from %s, message sent to server.]' % receiver
-			print '>>> ',
-			sendOffline(s, content, receiver)
+		if (status == 1): 
+			content = myName + ': ' + msg[2]
+			head = genHead(content, MSG)
+			mySend(head[0], content, s, addr, port)
+			if (waitAck(head[1]) == False):
+				print '\n>>> [No ACK from %s, message sent to server.]' % receiver
+				print '>>> ',
+				sendOffline(s, content, receiver)
+			else:
+				print '\n>>> [Message received by %s.]\n' % receiver
+				print '>>> ',
 		else:
-			print '\n>>> [Message received by %s.]\n' % receiver
+			print '\n>>> [%s is offline, message sent to server.]' % receiver
 			print '>>> ',
-	else:
+			content = myName + ': ' + msg[2]
+			sendOffline(s, content, receiver)
+			
+			
+	elif (msg[0] == 'reg'):
+		if (len(msg) != 2):
+			print '\n>>> [msg invalid]'
+			print '>>>',
+			return
 		myName = msg[1]	
-		register(s)	
-	
+		register(s)
+	elif (msg[0] == 'dereg'):
+		if (len(msg) != 2):
+			print '\n>>> [msg invalid]'
+			print '>>>',
+			return
+		head = genHead(myName, DEREG)
+		mySend(head[0], myName, s, serverIp, serverPort)	
+		waitAck(head[1])
+		print '\n>>> [Your are Offline. Bye.]'
+		print '>>>',
+		
+	else:
+		print '\n>>> [msg invalid]'
+		print '>>>',
+		return
 
 def client():
 	global userTable, clientPort, clientIp
